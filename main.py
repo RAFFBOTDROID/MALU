@@ -3,7 +3,7 @@ import random
 import logging
 import httpx
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, JobQueue
 
 TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -77,25 +77,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = await call_ai_humana(msg_text)
     await update.message.reply_text(reply)
 
-async def auto_messages(app: Application):
-    import asyncio
-    await asyncio.sleep(10)
-    while True:
-        try:
-            chats = app.bot_data.get("chats", set())
-            for chat_id in chats:
-                msg = random.choice(AUTO_MESSAGES)
-                await app.bot.send_message(chat_id=chat_id, text=msg)
-            await asyncio.sleep(random.randint(300, 600))
-        except Exception as e:
-            log.error(f"Erro em auto_messages: {e}")
-            await asyncio.sleep(10)
-
 async def save_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if "chats" not in context.bot_data:
         context.bot_data["chats"] = set()
     context.bot_data["chats"].add(chat_id)
+
+async def auto_messages_job(context: ContextTypes.DEFAULT_TYPE):
+    chats = context.bot_data.get("chats", set())
+    if not chats:
+        return
+    for chat_id in chats:
+        msg = random.choice(AUTO_MESSAGES)
+        await context.bot.send_message(chat_id=chat_id, text=msg)
 
 # ================= EXECUÇÃO =================
 app = Application.builder().token(TOKEN).build()
@@ -103,11 +97,9 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 app.add_handler(MessageHandler(filters.ALL, save_chat))
 
+# agenda mensagens automáticas a cada 5-10 minutos
+job_queue: JobQueue = app.job_queue
+job_queue.run_repeating(auto_messages_job, interval=random.randint(300, 600), first=10)
+
 log.info(f"🤖 {PERSONAGEM} iniciado com IA humanizada!")
-
-# mensagens automáticas
-import asyncio
-asyncio.create_task(auto_messages(app))
-
-# NO RENDER OU AMBIENTES JÁ ASSÍNCRONOS, só rodar direto:
 app.run_polling()
