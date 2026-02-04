@@ -1,14 +1,15 @@
 import os
-import asyncio
 import logging
 import random
 import time
 from collections import deque
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from aiohttp import web
 
 # ================= CONFIG =================
 TOKEN = os.getenv("BOT_TOKEN")
+PORT = int(os.getenv("PORT", 10000))
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN não definido")
 
@@ -17,7 +18,6 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("BOT")
 
 # ================= MEMÓRIA DO GRUPO =================
-# Mantém últimas 50 mensagens por usuário
 MEMORY_LIMIT = 50
 user_history = {}  # {user_id: deque([...])}
 
@@ -32,7 +32,7 @@ PERSONALITY = [
 
 # ================= ANTI-SPAM =================
 cooldowns = {}
-COOLDOWN_TIME = 5  # segundos
+COOLDOWN_TIME = 5
 
 def can_use(uid):
     now = time.time()
@@ -70,32 +70,13 @@ async def auto_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if random.random() < 0.7:  # 70% chance de responder
         reply_text = random.choice(PERSONALITY)
 
-        # Pequeno toque de contexto usando a última mensagem
         if history:
             last_msg = history[-1]
             reply_text += f" 😏 Você disse: '{last_msg}'"
 
         await message.reply_text(reply_text)
 
-# ================= FUNÇÃO PRINCIPAL =================
-async def run_bot():
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_reply))
-
-    # Anti-conflito de polling (render)
-    try:
-        await app.bot.delete_webhook(drop_pending_updates=True)
-    except:
-        pass
-
-    log.info("🤖 Bot Telegram iniciado com polling...")
-    await app.run_polling()
-
-# ================= SERVIÇO WEB PARA MANTER ONLINE =================
-from aiohttp import web
-
+# ================= SERVIÇO WEB =================
 async def handle_root(request):
     return web.Response(text="🤖 Bot ativo!", content_type="text/plain")
 
@@ -104,13 +85,31 @@ async def run_web():
     app.add_routes([web.get("/", handle_root)])
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 10000)))
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    log.info(f"🌐 Porta aberta em {os.getenv('PORT', 10000)}")
+    log.info(f"🌐 Porta aberta em {PORT}")
 
-# ================= MAIN =================
+# ================= BOT =================
 async def main():
-    await asyncio.gather(run_bot(), run_web())
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_reply))
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    # Remove webhook para evitar conflitos
+    try:
+        await app.bot.delete_webhook(drop_pending_updates=True)
+    except:
+        pass
+
+    log.info("🤖 Bot Telegram iniciado com polling...")
+
+    # Rodar bot e web server juntos
+    await run_web()
+    await app.run_polling()
+
+# ================= ENTRYPOINT =================
+# No Render, NÃO usar asyncio.run()
+import asyncio
+loop = asyncio.get_event_loop()
+loop.create_task(main())
+loop.run_forever()
