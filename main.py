@@ -1,7 +1,7 @@
 import os
 import random
 import asyncio
-from telegram import Update, Message
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -9,100 +9,75 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+import openai
 
-# Se quiser IA humanizada usando OpenAI, descomente e configure sua API key
-# import openai
-# openai.api_key = os.getenv("OPENAI_API_KEY")
-
+# ================= CONFIG =================
 TOKEN = os.getenv("BOT_TOKEN")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_KEY
 
-# =====================
-# Funções principais
-# =====================
+BOT_NAME = "Malu"  # nome do bot/personagem
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mensagem inicial do bot"""
-    await update.message.reply_text(
-        "Olá! Eu sou a Malu 😎\nEstou aqui para interagir de forma humanizada."
-    )
+# ================= FUNÇÕES =================
 
-async def human_response(text: str) -> str:
+async def gerar_resposta(texto: str) -> str:
     """
-    Aqui você pode colocar sua IA. 
-    Por enquanto, retorna respostas simples para testes.
+    Gera resposta humanizada usando OpenAI
     """
-    # Exemplo simples
-    respostas = [
-        "Interessante 😏",
-        "Ah, entendi!",
-        "Pode me contar mais?",
-        "Hum… fiquei pensando nisso 🤔",
-        "Haha, gostei do que disse 😄",
+    try:
+        resp = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": f"Você é {BOT_NAME}, uma pessoa amigável e natural no Telegram."},
+                {"role": "user", "content": texto}
+            ],
+            temperature=0.8,
+            max_tokens=150
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        print("Erro OpenAI:", e)
+        return "Ops, algo deu errado 😅"
+
+async def responder_mensagens(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Responde mensagens normais, ignorando mensagens citadas
+    """
+    # Ignora mensagens que são citações
+    if update.message.reply_to_message:
+        return
+
+    texto = update.message.text
+    resposta = await gerar_resposta(texto)
+    await update.message.reply_text(resposta)
+
+async def auto_mensagem(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Envia mensagens automáticas de vez em quando
+    """
+    chat_id = os.getenv("GROUP_ID")  # coloque o ID do grupo
+    mensagens = [
+        "Oi pessoal! 😎",
+        "Como vocês estão hoje?",
+        "Alguém viu algo interessante?",
+        "Malu passando para dizer oi 👋"
     ]
-    return random.choice(respostas)
+    await context.bot.send_message(chat_id=chat_id, text=random.choice(mensagens))
 
-    # Exemplo com OpenAI GPT:
-    # response = openai.ChatCompletion.create(
-    #     model="gpt-3.5-turbo",
-    #     messages=[{"role": "user", "content": text}],
-    #     max_tokens=50,
-    # )
-    # return response.choices[0].message.content.strip()
+# ================= MAIN =================
 
-async def reply_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Responde mensagens normais, ignorando mensagens citadas"""
-    message: Message = update.message
-
-    # Ignora mensagens sem texto ou mensagens citadas
-    if not message.text:
-        return
-    if message.reply_to_message:
-        return
-
-    response = await human_response(message.text)
-    await message.reply_text(response)
-
-# =====================
-# Mensagens automáticas
-# =====================
-
-async def auto_messages_job(context: ContextTypes.DEFAULT_TYPE):
-    """Envia mensagens automáticas para o grupo"""
-    chat_id = os.getenv("GROUP_CHAT_ID")  # Coloque o ID do grupo aqui
-    if not chat_id:
-        return
-    frases = [
-        "Oi pessoal 😎",
-        "Como estão todos?",
-        "Alguém quer conversar?",
-        "Malu está de olho 👀",
-        "Vamos animar esse grupo! 🎉",
-    ]
-    await context.bot.send_message(chat_id=chat_id, text=random.choice(frases))
-
-# =====================
-# Main
-# =====================
-
-def main():
+async def main():
     app = Application.builder().token(TOKEN).build()
 
-    # Comandos
-    app.add_handler(CommandHandler("start", start))
+    # Handlers
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder_mensagens))
 
-    # Mensagens de membros
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply_messages))
+    # Job Queue: mensagens automáticas
+    app.job_queue.run_repeating(auto_mensagem, interval=random.randint(300, 600), first=15)
 
-    # Mensagens automáticas a cada 5-10 minutos
-    app.job_queue.run_repeating(
-        auto_messages_job, interval=random.randint(300, 600), first=10
-    )
+    print(f"INFO:BOT:🤖 {BOT_NAME} iniciado com IA humanizada!")
+    await app.run_polling()
 
-    print("INFO:BOT:🤖 Malu iniciado com IA humanizada!")
-    app.run_polling()
-
-# =====================
-# Rodando o bot
-# =====================
+# ================= EXEC =================
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
