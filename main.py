@@ -41,9 +41,6 @@ def can_use(uid):
 
 # ================= IA HUMANIZADA =================
 async def call_ai_humana(prompt):
-    """
-    Chama o OpenRouter para gerar respostas humanizadas.
-    """
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -61,7 +58,6 @@ async def call_ai_humana(prompt):
             data = r.json()
 
         if "choices" in data:
-            # Humaniza a resposta adicionando emojis ou variações
             resposta = data["choices"][0]["message"]["content"]
             if random.random() < 0.3:
                 resposta += " 😏"
@@ -81,8 +77,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= INTERAÇÃO DO BOT =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Ignora mensagens citadas
-    if update.message.reply_to_message:
+    if update.message.reply_to_message:  # ignora mensagens citadas
         return
 
     uid = update.effective_user.id
@@ -90,17 +85,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg_text = update.message.text
-
-    # Chama IA para gerar resposta humanizada
     reply = await call_ai_humana(msg_text)
     await update.message.reply_text(reply)
 
 # ================= MENSAGENS AUTOMÁTICAS =================
-async def auto_messages(app):
+async def auto_messages(app: Application):
     await asyncio.sleep(10)
     while True:
         try:
-            for chat_id in app.bot_data.get("chats", []):
+            chats = app.bot_data.get("chats", set())
+            for chat_id in chats:
                 msg = random.choice(AUTO_MESSAGES)
                 await app.bot.send_message(chat_id=chat_id, text=msg)
             await asyncio.sleep(random.randint(300, 600))
@@ -125,10 +119,9 @@ async def main():
 
     log.info(f"🤖 {PERSONAGEM} iniciado com IA humanizada!")
 
-    await asyncio.gather(
-        app.start_polling(),  # evita conflito de loop
-        auto_messages(app)
-    )
+    # Rodar bot e mensagens automáticas sem conflito
+    asyncio.create_task(auto_messages(app))
+    await app.run_polling()  # versão correta do polling no v20+
 
 if __name__ == "__main__":
     asyncio.run(main())
