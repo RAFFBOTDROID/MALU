@@ -40,16 +40,16 @@ async def call_ai(prompt):
         "Content-Type": "application/json"
     }
 
-    payload = {
-        "model": "mistralai/mistral-7b-instruct:free",
-        "messages": [
-            {"role": "system", "content": "Você é uma IA simpática, jovem e responde em português do Brasil."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 180,
-        "top_p": 0.9
-    }
+   payload = {
+    "model": "google/gemma-7b-it:free",
+    "messages": [
+        {"role": "system", "content": "Você é uma IA simpática, jovem e responde em português do Brasil."},
+        {"role": "user", "content": prompt}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 180,
+    "top_p": 0.9
+}
 
     try:
         async with httpx.AsyncClient(timeout=25) as client:
