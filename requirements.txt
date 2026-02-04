@@ -1,24 +1,77 @@
-# Telegram bot moderno (v20+)
-python-telegram-bot>=20.3
+import os
+import random
+import asyncio
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters
+)
+import openai
 
-# Biblioteca para fazer requisições HTTP (OpenAI, APIs etc.)
-httpx>=0.24.0
+# ================= CONFIG =================
+TOKEN = os.getenv("BOT_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
 
-# OpenAI (IA humanizada)
-openai>=1.7.0
+# ================= FUNÇÕES =================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Olá! 🤖 Eu sou a Malu, sua IA humanizada. Mande algo que eu respondo!")
 
-# Async support para tarefas e loops
-aiohttp>=3.8.5
+async def echo_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recebe mensagem e responde usando OpenAI"""
+    user_msg = update.message.text
 
-# Dependências extras que podem ajudar com jobs e tarefas programadas
-python-dotenv>=1.0.0
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": user_msg}],
+            max_tokens=150,
+            temperature=0.8,
+        )
+        answer = response.choices[0].message.content
+    except Exception as e:
+        answer = "😅 Ops, algo deu errado com a IA."
 
-python-telegram-bot[job-queue]==22.6
-openai
-aiohttp
+    await update.message.reply_text(answer)
 
+async def auto_mensagem(context: ContextTypes.DEFAULT_TYPE):
+    """Mensagem automática periódica"""
+    chat_id = os.getenv("DEFAULT_CHAT_ID")  # coloque o chat_id do grupo ou canal
+    mensagens = [
+        "Oi pessoal! 😎 Como estão?",
+        "Lembre-se de beber água 💧",
+        "Não se esqueça de se divertir! 🎉",
+        "Estou aqui para conversar 😉"
+    ]
+    if chat_id:
+        await context.bot.send_message(chat_id=chat_id, text=random.choice(mensagens))
 
+# ================= CONFIGURA HANDLERS =================
+def setup_handlers(app: Application):
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo_ai))
 
+# ================= MAIN =================
+async def main():
+    app = Application.builder().token(TOKEN).build()
 
+    # Adiciona handlers
+    setup_handlers(app)
 
+    # Job automático
+    if app.job_queue:
+        app.job_queue.run_repeating(auto_mensagem, interval=random.randint(300, 600), first=15)
 
+    # Rodar o bot
+    await app.run_polling()
+
+# ================= EXECUÇÃO =================
+# Compatível com Render (loop já rodando)
+loop = asyncio.get_event_loop()
+if loop.is_running():
+    loop.create_task(main())
+else:
+    loop.run_until_complete(main())
