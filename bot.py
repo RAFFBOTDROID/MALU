@@ -13,22 +13,27 @@ from telegram.ext import (
 
 # ================= CONFIG =================
 TOKEN = os.getenv("BOT_TOKEN")
-
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+# MODELOS GRATUITOS COM FALLBACK
+MODELS = [
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "qwen/qwen-2.5-7b-instruct:free",
+    "microsoft/phi-3-mini-4k-instruct:free"
+]
 
 logging.basicConfig(level=logging.INFO)
 
 # ============== PERSONALIDADE =============
 SYSTEM_PROMPT = (
     "Você se chama Malu. "
-    "Você é jovem, simpática e zoeira. "
+    "Você é jovem, simpática, zoeira e fala como gente normal. "
     "Responda em português do Brasil. "
-    "Use frases completas, naturais e com contexto. "
-    "Fale como alguém de grupo, não fale como IA. "
-    "No máximo 2 emojis."
+    "Não fale como IA. "
+    "No máximo 2 emojis. "
+    "Seja divertida e natural."
 )
 
 # ============== RESPOSTAS RÁPIDAS =========
@@ -41,6 +46,9 @@ RESPOSTAS_RAPIDAS = {
 
 # ============== IA =========================
 def perguntar_ia(texto):
+    if not OPENROUTER_API_KEY:
+        return "Tô sem cérebro agora 😅 (API KEY não configurada)"
+
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -48,49 +56,48 @@ def perguntar_ia(texto):
         "X-Title": "MaluBot"
     }
 
-    payload = {
-        "model": "meta-llama/llama-3.1-8b-instruct:free",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": texto}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 120,
-        "top_p": 0.9
-    }
+    # tenta vários modelos
+    for model in MODELS:
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": texto}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 120,
+            "top_p": 0.9
+        }
 
-    try:
-        r = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
+        try:
+            r = requests.post(
+                OPENROUTER_URL,
+                headers=headers,
+                json=payload,
+                timeout=40
+            )
 
-        if r.status_code != 200:
-            logging.error(f"OPENROUTER STATUS {r.status_code}: {r.text}")
-            raise Exception("Falha OpenRouter")
+            if r.status_code != 200:
+                logging.warning(f"Modelo falhou {model}: {r.text}")
+                continue
 
-        data = r.json()
-        resposta = data["choices"][0]["message"]["content"].strip()
+            data = r.json()
+            resposta = data["choices"][0]["message"]["content"].strip()
 
-        if not resposta:
-            return random.choice([
-                "Buguei rapidão 😂",
-                "Fiquei pensativa 🤔",
-                "Meu cérebro deu tela azul 😅"
-            ])
+            if resposta:
+                return resposta
 
-        return resposta
+        except Exception as e:
+            logging.warning(f"Erro modelo {model}: {e}")
+            continue
 
-    except Exception as e:
-        logging.error(f"ERRO IA: {e}")
-        return random.choice([
-            "Deu ruim aqui, mas já volto 😎",
-            "Fui pensar e me perdi 😂",
-            "Meu Wi-Fi mental caiu 😅"
-        ])
-
+    # fallback final
+    return random.choice([
+        "Buguei forte agora 😂",
+        "Meu cérebro caiu 😅",
+        "Fui pensar e me perdi 🤯",
+        "Travou aqui rapidinho 😂"
+    ])
 
 # ============== COMANDO ===================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -132,13 +139,17 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ============== MAIN ======================
 def main():
+    if not TOKEN:
+        raise RuntimeError("BOT_TOKEN não definido")
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
-    print("🤖 Bot rodando no Render...")
-    app.run_polling()
+    print("🤖 Malu rodando no Render...")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
+
