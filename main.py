@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("BOT")
 
 # =========================
-# IA OPENROUTER FREE
+# IA OPENROUTER
 # =========================
 async def call_ai(prompt):
     if not OPENROUTER_KEY:
@@ -36,11 +36,14 @@ async def call_ai(prompt):
         "max_tokens": 250
     }
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.post(url, headers=headers, json=payload)
-        data = r.json()
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(url, headers=headers, json=payload)
+            data = r.json()
 
-    return data["choices"][0]["message"]["content"]
+        return data["choices"][0]["message"]["content"]
+    except:
+        return "⚠️ Falha temporária na IA"
 
 # =========================
 # ANTI-SPAM
@@ -63,6 +66,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+
     if not can_use(uid):
         await update.message.reply_text("⏳ Aguarde alguns segundos...")
         return
@@ -74,37 +78,46 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(reply)
 
 # =========================
-# TELEGRAM LOOP
-# =========================
-async def run_bot():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
-
-    await app.run_polling()
-
-# =========================
 # SERVIDOR HTTP FAKE
 # =========================
 async def handle(request):
-    return web.Response(text="Bot rodando no Render Free")
+    return web.Response(text="Bot Telegram rodando no Render Free")
 
-async def run_web():
+async def start_web():
     app = web.Application()
     app.router.add_get("/", handle)
 
     runner = web.AppRunner(app)
     await runner.setup()
+
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
     log.info(f"🌐 Porta aberta em {PORT}")
 
 # =========================
+# START BOT SEM LOOP CONFLITANTE
+# =========================
+async def start_bot():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    log.info("🤖 Bot Telegram iniciado")
+
+# =========================
 # MAIN
 # =========================
 async def main():
-    await asyncio.gather(run_bot(), run_web())
+    await asyncio.gather(
+        start_web(),
+        start_bot()
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
