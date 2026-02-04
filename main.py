@@ -1,38 +1,29 @@
 import os
-import asyncio
 import logging
-import time
-import httpx
+import asyncio
+import requests
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-TOKEN = os.getenv("BOT_TOKEN")
+# =========================
+# CONFIG
+# =========================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 
-if not TOKEN:
-    raise RuntimeError("BOT_TOKEN não definido")
+if not BOT_TOKEN:
+    raise RuntimeError("❌ BOT_TOKEN não encontrado")
 
-# ================= LOG LIMPO =================
+if not OPENROUTER_KEY:
+    raise RuntimeError("❌ OPENROUTER_API_KEY não encontrada")
+
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("BOT")
+logger = logging.getLogger(__name__)
 
-# ================= ANTI-SPAM =================
-cooldowns = {}
-COOLDOWN_TIME = 5
-
-def can_use(uid):
-    now = time.time()
-    last = cooldowns.get(uid, 0)
-    if now - last < COOLDOWN_TIME:
-        return False
-    cooldowns[uid] = now
-    return True
-
-# ================= IA OPENROUTER =================
-async def call_ai(prompt):
-    if not OPENROUTER_KEY:
-        return "⚠️ IA indisponível (API não configurada)"
-
+# =========================
+# IA GRATUITA
+# =========================
+def call_ai(prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
 
     headers = {
@@ -40,71 +31,79 @@ async def call_ai(prompt):
         "Content-Type": "application/json"
     }
 
-   payload = {
-    "model": "google/gemma-7b-it:free",
-    "messages": [
-        {"role": "system", "content": "Você é uma IA simpática, jovem e responde em português do Brasil."},
-        {"role": "user", "content": prompt}
-    ],
-    "temperature": 0.7,
-    "max_tokens": 180,
-    "top_p": 0.9
-}
+    payload = {
+        "model": "google/gemma-7b-it:free",
+        "messages": [
+            {"role": "system", "content": "Você é uma IA amigável que responde em português do Brasil."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 200
+    }
 
-    try:
-        async with httpx.AsyncClient(timeout=25) as client:
-            r = await client.post(url, headers=headers, json=payload)
+    r = requests.post(url, json=payload, headers=headers, timeout=25)
+    data = r.json()
 
-        if r.status_code != 200:
-            log.error(f"OPENROUTER STATUS {r.status_code}: {r.text}")
-            return "⚠️ IA ocupada agora, tenta de novo"
+    return data["choices"][0]["message"]["content"]
 
-        data = r.json()
+# =========================
+# ANTI-SPAM
+# =========================
+user_cooldown = {}
 
-        if "choices" in data and len(data["choices"]) > 0:
-            return data["choices"][0]["message"]["content"].strip()
+def is_spam(uid):
+    now = asyncio.get_event_loop().time()
+    last = user_cooldown.get(uid, 0)
+    if now - last < 3:
+        return True
+    user_cooldown[uid] = now
+    return False
 
-        return "⚠️ IA respondeu vazio"
-
-    except Exception as e:
-        log.error(f"ERRO IA: {e}")
-        return "⚠️ Falha temporária na IA"
-
-
-
-# ================= COMANDOS =================
+# =========================
+# HANDLERS
+# =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 Bot online no Render FREE!\n\nDigite algo para falar comigo 😎"
+        "🤖 Bot online!\n\nEnvie uma mensagem para falar com a IA."
     )
 
-async def ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
 
-    if not can_use(uid):
-        await update.message.reply_text("⏳ Calma aí, espera alguns segundos...")
+    if is_spam(uid):
         return
 
-    msg = update.message.text
+    text = update.message.text
 
-    await update.message.reply_text("🧠 Pensando...")
+    await update.message.chat.send_action("typing")
 
-    reply = await call_ai(msg)
-    await update.message.reply_text(reply)
+    try:
+        reply = await asyncio.to_thread(call_ai, text)
+        await update.message.reply_text(reply)
+    except Exception as e:
+        logger.error(e)
+        await update.message.reply_text("⚠️ Erro ao responder. Tente novamente.")
 
-# ================= MAIN =================
-def main():
-    app = Application.builder().token(TOKEN).build()
+# =========================
+# AUTO RECONNECT
+# =========================
+async def main():
+    while True:
+        try:
+            app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_chat))
+            app.add_handler(CommandHandler("start", start))
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    log.info("🤖 Bot iniciado no Render")
+            print("✅ Bot rodando...")
+            await app.run_polling()
 
-    app.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True
-    )
+        except Exception as e:
+            print("❌ Erro crítico, reiniciando em 5s:", e)
+            await asyncio.sleep(5)
 
+# =========================
+# START
+# =========================
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
