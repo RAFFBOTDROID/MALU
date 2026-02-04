@@ -13,6 +13,10 @@ aiohttp>=3.8.5
 # Dependências extras que podem ajudar com jobs e tarefas programadas
 python-dotenv>=1.0.0
 
+python-telegram-bot[job-queue]==22.6
+openai
+aiohttp
+
 
 
 
