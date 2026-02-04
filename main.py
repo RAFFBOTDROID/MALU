@@ -6,7 +6,7 @@ import httpx
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# ================= CONFIGURAÇÃO =================
+# ================= CONFIG =================
 TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 
@@ -18,18 +18,28 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("BOT")
 
 # ================= ANTI-SPAM =================
-cooldowns = {}
-COOLDOWN_TIME = 5  # segundos de cooldown
+cooldowns_user = {}
+cooldowns_group = {}
+USER_COOLDOWN = 5
+GROUP_COOLDOWN = 15
 
-def can_use(uid):
+def can_use_user(uid):
     now = time.time()
-    last = cooldowns.get(uid, 0)
-    if now - last < COOLDOWN_TIME:
+    last = cooldowns_user.get(uid, 0)
+    if now - last < USER_COOLDOWN:
         return False
-    cooldowns[uid] = now
+    cooldowns_user[uid] = now
     return True
 
-# ================= FUNÇÃO IA =================
+def can_use_group(chat_id):
+    now = time.time()
+    last = cooldowns_group.get(chat_id, 0)
+    if now - last < GROUP_COOLDOWN:
+        return False
+    cooldowns_group[chat_id] = now
+    return True
+
+# ================= FUNÇÃO IA COM PERSONALIDADE =================
 async def call_ai(prompt: str):
     if not OPENROUTER_KEY:
         return "⚠️ IA indisponível (API não configurada)"
@@ -39,9 +49,20 @@ async def call_ai(prompt: str):
         "Authorization": f"Bearer {OPENROUTER_KEY}",
         "Content-Type": "application/json"
     }
+
+    # Define a personalidade do bot
+    personality_prompt = (
+        "Você é um bot chamado 'Malu', jovem, divertido, sarcástico e carinhoso. "
+        "Você responde mensagens de forma leve e engraçada, gosta de interagir com os membros do grupo e tem bom humor. "
+        "Não se apresente como um bot, apenas fale como se fosse uma pessoa real."
+    )
+
     payload = {
         "model": "mistralai/mistral-7b-instruct",
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [
+            {"role": "system", "content": personality_prompt},
+            {"role": "user", "content": prompt}
+        ],
         "max_tokens": 200
     }
 
@@ -62,41 +83,54 @@ async def call_ai(prompt: str):
 # ================= COMANDOS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 Bot online no Render FREE!\n\nDigite qualquer coisa para falar com a IA."
+        "🤖 Olá! Eu sou a Malu, o bot divertido do grupo! 🌟"
     )
 
-async def ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= INTERAÇÃO AUTOMÁTICA =================
+async def group_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg_text = update.message.text
+    chat_id = update.effective_chat.id
     uid = update.effective_user.id
 
-    if not can_use(uid):
-        await update.message.reply_text("⏳ Aguarde alguns segundos...")
+    # Evita flood de respostas automáticas
+    if not can_use_group(chat_id):
         return
 
-    msg = update.message.text
-    thinking_msg = await update.message.reply_text("🧠 Pensando...")
+    # Ignora mensagens do próprio bot
+    if update.effective_user.is_bot:
+        return
 
-    reply = await call_ai(msg)
+    # Gera resposta usando IA
+    thinking_msg = await update.message.reply_text("🧠 Malu está pensando...")
+    reply = await call_ai(msg_text)
     await thinking_msg.edit_text(reply)
 
-# ================= FUNÇÃO PRINCIPAL =================
-async def main():
+# ================= EXECUÇÃO =================
+async def run_bot():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_chat))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_chat))
 
-    # ⚡ Polling sem usar asyncio.run(), compatível com Render
-    log.info("🤖 Bot Telegram iniciado com polling...")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
-    await app.stop()
-    await app.shutdown()
+    while True:
+        try:
+            # Remove webhook para evitar conflito
+            try:
+                await app.bot.delete_webhook(drop_pending_updates=True)
+            except:
+                pass
 
-# ================= EXECUÇÃO =================
+            log.info("🤖 Bot Malu iniciado com polling...")
+            await app.initialize()
+            await app.start()
+            await app.updater.start_polling()
+            await app.updater.idle()
+            await app.stop()
+            await app.shutdown()
+        except Exception as e:
+            log.error(f"⚡ Erro no bot, reconectando em 5s: {e}")
+            await asyncio.sleep(5)
+
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
-    loop.create_task(main())  # cria a task no loop já existente
-
-    # Mantém o loop rodando
+    loop.create_task(run_bot())
     loop.run_forever()
