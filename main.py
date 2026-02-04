@@ -13,7 +13,7 @@ OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN não definido!")
 
-# ================= LOG LIMPO =================
+# ================= LOG =================
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("BOT")
 
@@ -84,14 +84,19 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_chat))
 
-    # Polling puro (ideal para Render Free)
+    # ⚡ Polling sem usar asyncio.run(), compatível com Render
     log.info("🤖 Bot Telegram iniciado com polling...")
-    await app.run_polling()
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await app.updater.idle()
+    await app.stop()
+    await app.shutdown()
 
 # ================= EXECUÇÃO =================
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except RuntimeError as e:
-        # Para casos de event loop já rodando
-        log.error(f"Erro de loop: {e}")
+    loop = asyncio.get_event_loop()
+    loop.create_task(main())  # cria a task no loop já existente
+
+    # Mantém o loop rodando
+    loop.run_forever()
