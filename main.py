@@ -1,29 +1,28 @@
 import os
-import logging
 import asyncio
-import requests
+import logging
+import httpx
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from aiohttp import web
 
-# =========================
-# CONFIG
-# =========================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
+PORT = int(os.getenv("PORT", 10000))
 
 if not BOT_TOKEN:
-    raise RuntimeError("❌ BOT_TOKEN não encontrado")
-
-if not OPENROUTER_KEY:
-    raise RuntimeError("❌ OPENROUTER_API_KEY não encontrada")
+    raise RuntimeError("BOT_TOKEN não encontrado")
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+log = logging.getLogger("BOT")
 
 # =========================
-# IA GRATUITA
+# IA OPENROUTER FREE
 # =========================
-def call_ai(prompt):
+async def call_ai(prompt):
+    if not OPENROUTER_KEY:
+        return "⚠️ IA não configurada"
+
     url = "https://openrouter.ai/api/v1/chat/completions"
 
     headers = {
@@ -33,77 +32,79 @@ def call_ai(prompt):
 
     payload = {
         "model": "google/gemma-7b-it:free",
-        "messages": [
-            {"role": "system", "content": "Você é uma IA amigável que responde em português do Brasil."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 200
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 250
     }
 
-    r = requests.post(url, json=payload, headers=headers, timeout=25)
-    data = r.json()
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(url, headers=headers, json=payload)
+        data = r.json()
 
     return data["choices"][0]["message"]["content"]
 
 # =========================
 # ANTI-SPAM
 # =========================
-user_cooldown = {}
+cooldowns = {}
 
-def is_spam(uid):
+def can_use(uid):
     now = asyncio.get_event_loop().time()
-    last = user_cooldown.get(uid, 0)
+    last = cooldowns.get(uid, 0)
     if now - last < 3:
-        return True
-    user_cooldown[uid] = now
-    return False
+        return False
+    cooldowns[uid] = now
+    return True
 
 # =========================
 # HANDLERS
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🤖 Bot online!\n\nEnvie uma mensagem para falar com a IA."
-    )
+    await update.message.reply_text("🤖 Bot online no Render FREE!")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-
-    if is_spam(uid):
+    if not can_use(uid):
+        await update.message.reply_text("⏳ Aguarde alguns segundos...")
         return
 
-    text = update.message.text
+    msg = update.message.text
+    await update.message.reply_text("🧠 Pensando...")
 
-    await update.message.chat.send_action("typing")
-
-    try:
-        reply = await asyncio.to_thread(call_ai, text)
-        await update.message.reply_text(reply)
-    except Exception as e:
-        logger.error(e)
-        await update.message.reply_text("⚠️ Erro ao responder. Tente novamente.")
+    reply = await call_ai(msg)
+    await update.message.reply_text(reply)
 
 # =========================
-# AUTO RECONNECT
+# TELEGRAM LOOP
+# =========================
+async def run_bot():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+
+    await app.run_polling()
+
+# =========================
+# SERVIDOR HTTP FAKE
+# =========================
+async def handle(request):
+    return web.Response(text="Bot rodando no Render Free")
+
+async def run_web():
+    app = web.Application()
+    app.router.add_get("/", handle)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+
+    log.info(f"🌐 Porta aberta em {PORT}")
+
+# =========================
+# MAIN
 # =========================
 async def main():
-    while True:
-        try:
-            app = ApplicationBuilder().token(BOT_TOKEN).build()
+    await asyncio.gather(run_bot(), run_web())
 
-            app.add_handler(CommandHandler("start", start))
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-            print("✅ Bot rodando...")
-            await app.run_polling()
-
-        except Exception as e:
-            print("❌ Erro crítico, reiniciando em 5s:", e)
-            await asyncio.sleep(5)
-
-# =========================
-# START
-# =========================
 if __name__ == "__main__":
     asyncio.run(main())
