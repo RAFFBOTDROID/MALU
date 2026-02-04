@@ -2,63 +2,68 @@ import os
 import random
 import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, JobQueue
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import openai
 
-# ================= CONFIGURAÇÃO =================
-TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# ===================== CONFIGURAÇÃO =====================
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+GROUP_CHAT_ID = os.environ.get("GROUP_CHAT_ID")  # opcional, para mensagens automáticas
 
-if not TOKEN or not OPENAI_API_KEY:
+if not BOT_TOKEN or not OPENAI_API_KEY:
     raise RuntimeError("⚠️ BOT_TOKEN ou OPENAI_API_KEY não encontrado nos secrets!")
 
 openai.api_key = OPENAI_API_KEY
 
-# ================= FUNÇÕES =================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Olá! 🤖 Eu sou a Malu com IA humanizada. Envie algo para conversar!")
+# Mensagens automáticas que o bot enviará periodicamente
+AUTO_MESSAGES = [
+    "Oi, tudo bem? 🤖",
+    "Quer bater um papo comigo? 😎",
+    "Estou aqui para conversar e ajudar! 🫱🫲",
+]
 
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    response = await ask_openai(user_text)
-    await update.message.reply_text(response)
-
-async def ask_openai(prompt: str) -> str:
-    """Consulta OpenAI para respostas humanizadas"""
+# ===================== FUNÇÕES =====================
+async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Responde qualquer mensagem do usuário com IA humanizada"""
+    user_message = update.message.text
     try:
-        resp = openai.ChatCompletion.create(
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=150
+            messages=[{"role": "user", "content": user_message}],
+            temperature=0.7,
+            max_tokens=250
         )
-        return resp.choices[0].message.content.strip()
+        ai_reply = response.choices[0].message.content
     except Exception as e:
-        return f"Ops! Houve um erro na IA: {e}"
+        print(f"Erro OpenAI: {e}")
+        ai_reply = "Desculpe, tive um problema ao processar sua mensagem 😓"
 
-async def auto_mensagem(context: ContextTypes.DEFAULT_TYPE):
-    """Função de mensagens automáticas periódicas"""
-    chats = context.job.chat_id if hasattr(context.job, "chat_id") else None
-    if chats:
-        await context.bot.send_message(chat_id=chats, text="🤖 Lembrete amigável da Malu!")
+    await update.message.reply_text(ai_reply)
 
-# ================= INICIALIZAÇÃO =================
+async def auto_messages(app: Application, interval: int = 600):
+    """Envia mensagens automáticas periodicamente"""
+    while True:
+        try:
+            if GROUP_CHAT_ID:
+                msg = random.choice(AUTO_MESSAGES)
+                await app.bot.send_message(chat_id=GROUP_CHAT_ID, text=msg)
+        except Exception as e:
+            print(f"Erro ao enviar mensagem automática: {e}")
+        await asyncio.sleep(interval)
+
+# ===================== MAIN =====================
 async def main():
-    # Criar a aplicação
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).build()
 
-    # Handlers de comandos
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("chat", chat))
+    # Captura **qualquer mensagem de texto** para responder com IA
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_with_ai))
 
-    # JobQueue - mensagens automáticas a cada 5-10 minutos
-    # Só funciona se você passar um chat_id válido
-    job_queue: JobQueue = app.job_queue
-    job_queue.run_repeating(auto_mensagem, interval=random.randint(300, 600), first=15)
+    # Inicia o envio automático de mensagens
+    asyncio.create_task(auto_messages(app, interval=600))  # envia a cada 10 min
 
-    # Rodar bot (async polling)
-    await app.run_polling()
+    # Rodar o bot no Render sem dar erro de loop
+    await app.run_polling(close_loop=False)
 
-# ================= RODAR NO RENDER =================
-# Render já tem loop do asyncio ativo, então usamos create_task
-asyncio.get_event_loop().create_task(main())
-print("INFO:BOT:🤖 Malu iniciado com IA humanizada!")
+# ===================== EXECUÇÃO =====================
+if __name__ == "__main__":
+    asyncio.run(main())
