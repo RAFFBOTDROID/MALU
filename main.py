@@ -1,52 +1,61 @@
-# ================= MAIN (SAFE MODE — LOOP FIX DEFINITIVO) =================
-import threading
-import time
-import shutil
-import logging
 import os
+import random
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-BACKUP_INTERVAL = 3600
-WATCHDOG_INTERVAL = 120
+TOKEN = os.getenv("BOT_TOKEN")
+GROUP_ID = os.getenv("GROUP_ID")  # ID do grupo para mensagens automáticas
+BOT_NAME = "Malu"
 
-def backup_db():
-    while True:
-        try:
-            if os.path.exists(DB_NAME):
-                shutil.copy(DB_NAME, DB_NAME + ".backup")
-                logging.info("💾 Backup do banco criado")
-        except Exception as e:
-            logging.error(f"Erro no backup: {e}")
-        time.sleep(BACKUP_INTERVAL)
+RESPONSES = [
+    "Oi! Como você está?",
+    "Interessante...",
+    "Hmm, me conta mais!",
+    "😂 Isso é engraçado!",
+    "Entendi!",
+    "Sério? Conta mais sobre isso!",
+    "😏 Interessante...",
+    "Que legal!"
+]
 
-def watchdog():
-    while True:
-        logging.info("💓 Bot vivo (Watchdog OK)")
-        time.sleep(WATCHDOG_INTERVAL)
+# Comando /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"🤖 {BOT_NAME} iniciado com IA humanizada!")
 
+# Ignorar mensagens citadas
+def is_not_reply(update: Update):
+    return update.message and update.message.reply_to_message is None
+
+# Responder mensagens do grupo
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_not_reply(update):
+        return  # ignora mensagens citadas
+    response = random.choice(RESPONSES)
+    await update.message.reply_text(response)
+
+# Mensagens automáticas
+async def auto_messages_job(context: ContextTypes.DEFAULT_TYPE):
+    if GROUP_ID:
+        response = random.choice(RESPONSES)
+        await context.bot.send_message(chat_id=int(GROUP_ID), text=response)
+
+# Função principal
 def main():
-    init_db()
+    # Criar aplicação
+    app = Application.builder().token(TOKEN).build()
 
-    app = ApplicationBuilder().token(TOKEN).build()
-
+    # Handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(callback))
-    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, receber_texto))
-    app.add_handler(
-        MessageHandler(
-            filters.ChatType.CHANNEL
-            | filters.ChatType.GROUP
-            | filters.ChatType.SUPERGROUP,
-            processar
-        )
-    )
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUP, handle_message))
 
-    # Threads seguras (não mexem no event loop)
-    threading.Thread(target=backup_db, daemon=True).start()
-    threading.Thread(target=watchdog, daemon=True).start()
+    # JobQueue integrado ao Application
+    if GROUP_ID:
+        interval = random.randint(300, 600)  # 5-10 minutos
+        app.job_queue.run_repeating(auto_messages_job, interval=interval, first=10)
 
-    logging.info("🚀 Channel Beautify PRO ONLINE — SAFE MODE")
-
-    # RODA NATIVO SEM asyncio.run
+    print(f"INFO:BOT:🤖 {BOT_NAME} iniciado com IA humanizada!")
+    
+    # Rodar polling sem asyncio.run (evita conflito de loop)
     app.run_polling()
 
 if __name__ == "__main__":
