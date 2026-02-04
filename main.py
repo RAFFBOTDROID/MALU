@@ -1,29 +1,25 @@
 import os
-import logging
 import time
+import logging
 import asyncio
 import httpx
-from aiohttp import web
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# ================= CONFIG =================
+# ================= CONFIGURAÇÃO =================
 TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
-PORT = int(os.environ.get("PORT", 10000))
-HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-URL = f"https://{HOSTNAME}/{TOKEN}" if HOSTNAME else None
 
 if not TOKEN:
-    raise RuntimeError("BOT_TOKEN não definido")
+    raise RuntimeError("BOT_TOKEN não definido!")
 
-# ================= LOG =================
+# ================= LOG LIMPO =================
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("BOT")
 
 # ================= ANTI-SPAM =================
 cooldowns = {}
-COOLDOWN_TIME = 5  # segundos
+COOLDOWN_TIME = 5  # segundos de cooldown
 
 def can_use(uid):
     now = time.time()
@@ -33,7 +29,7 @@ def can_use(uid):
     cooldowns[uid] = now
     return True
 
-# ================= IA =================
+# ================= FUNÇÃO IA =================
 async def call_ai(prompt: str):
     if not OPENROUTER_KEY:
         return "⚠️ IA indisponível (API não configurada)"
@@ -53,69 +49,49 @@ async def call_ai(prompt: str):
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.post(url, headers=headers, json=payload)
             data = r.json()
-        if "choices" in data:
+
+        if "choices" in data and len(data["choices"]) > 0:
             return data["choices"][0]["message"]["content"]
+
         return "⚠️ IA retornou resposta vazia"
+
     except Exception as e:
         log.error(f"ERRO IA: {e}")
         return "⚠️ Falha temporária na IA"
 
-# ================= HANDLERS =================
+# ================= COMANDOS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 Bot online no Render Free!\n\nDigite qualquer coisa para conversar com a IA."
+        "🤖 Bot online no Render FREE!\n\nDigite qualquer coisa para falar com a IA."
     )
 
 async def ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+
     if not can_use(uid):
-        await update.message.reply_text("⏳ Aguarde alguns segundos antes de enviar outra mensagem...")
+        await update.message.reply_text("⏳ Aguarde alguns segundos...")
         return
 
     msg = update.message.text
-    await update.message.reply_text("🧠 Pensando...")
+    thinking_msg = await update.message.reply_text("🧠 Pensando...")
+
     reply = await call_ai(msg)
-    await update.message.reply_text(reply)
+    await thinking_msg.edit_text(reply)
 
-# ================= WEB PING =================
-async def handle_ping(request):
-    return web.Response(text="Bot ativo ✅")
-
-async def run_web():
-    app_web = web.Application()
-    app_web.router.add_get("/", handle_ping)
-    runner = web.AppRunner(app_web)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
-    log.info(f"🌐 Porta aberta em {PORT} para ping HTTP")
-    while True:
-        await asyncio.sleep(3600)
-
-# ================= BOT =================
-async def run_bot():
+# ================= FUNÇÃO PRINCIPAL =================
+async def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_chat))
 
-    # Remove webhook antigo
-    await app.bot.delete_webhook(drop_pending_updates=True)
+    # Polling puro (ideal para Render Free)
+    log.info("🤖 Bot Telegram iniciado com polling...")
+    await app.run_polling()
 
-    # Define webhook no Render
-    if URL:
-        await app.bot.set_webhook(URL)
-        log.info(f"🤖 Bot Telegram iniciado com webhook: {URL}")
-    else:
-        log.info("⚠️ URL do webhook não definida, use polling")
-
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
-
-# ================= MAIN =================
-async def main():
-    await asyncio.gather(run_web(), run_bot())
-
+# ================= EXECUÇÃO =================
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except RuntimeError as e:
+        # Para casos de event loop já rodando
+        log.error(f"Erro de loop: {e}")
