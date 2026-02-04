@@ -49,13 +49,14 @@ def perguntar_ia(texto):
     }
 
     payload = {
-        "model": "mistralai/mistral-7b-instruct:free",
+        "model": "meta-llama/llama-3.1-8b-instruct:free",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": texto}
         ],
-        "temperature": 0.6,
-        "max_tokens": 120
+        "temperature": 0.7,
+        "max_tokens": 120,
+        "top_p": 0.9
     }
 
     try:
@@ -77,7 +78,7 @@ def perguntar_ia(texto):
             return random.choice([
                 "Buguei rapidão 😂",
                 "Fiquei pensativa 🤔",
-                "Meu cérebro deu 404 😅"
+                "Meu cérebro deu tela azul 😅"
             ])
 
         return resposta
@@ -85,10 +86,11 @@ def perguntar_ia(texto):
     except Exception as e:
         logging.error(f"ERRO IA: {e}")
         return random.choice([
-            "Travou aqui rapidinho 😂",
-            "Volto já, fui pensar 🤯",
+            "Deu ruim aqui, mas já volto 😎",
+            "Fui pensar e me perdi 😂",
             "Meu Wi-Fi mental caiu 😅"
         ])
+
 
 # ============== COMANDO ===================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
