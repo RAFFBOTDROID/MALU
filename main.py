@@ -42,31 +42,17 @@ async def call_ai(prompt):
         "X-Title": "RenderBot"
     }
 
-    payload = {
-        "model": "meta-llama/llama-3.1-8b-instruct:free",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 180,
-        "temperature": 0.7
-    }
+   payload = {
+    "model": "mistralai/mistral-7b-instruct:free",
+    "messages": [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": texto}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 150,
+    "top_p": 0.9
+}
 
-    try:
-        async with httpx.AsyncClient(timeout=25) as client:
-            r = await client.post(url, headers=headers, json=payload)
-
-        if r.status_code != 200:
-            log.error(f"OPENROUTER STATUS {r.status_code}: {r.text}")
-            return "⚠️ IA ocupada, tenta de novo"
-
-        data = r.json()
-
-        if "choices" in data and data["choices"]:
-            return data["choices"][0]["message"]["content"].strip()
-
-        return "⚠️ IA não respondeu"
-
-    except Exception as e:
-        log.error(f"ERRO IA: {e}")
-        return "⚠️ Falha temporária na IA"
 
 # ================= COMANDOS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
