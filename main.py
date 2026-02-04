@@ -37,21 +37,39 @@ async def call_ai(prompt):
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://render.com",
-        "X-Title": "RenderBot"
+        "Content-Type": "application/json"
     }
 
-   payload = {
-    "model": "mistralai/mistral-7b-instruct:free",
-    "messages": [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": texto}
-    ],
-    "temperature": 0.7,
-    "max_tokens": 150,
-    "top_p": 0.9
-}
+    payload = {
+        "model": "mistralai/mistral-7b-instruct:free",
+        "messages": [
+            {"role": "system", "content": "Você é uma IA simpática, jovem e responde em português do Brasil."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 180,
+        "top_p": 0.9
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            r = await client.post(url, headers=headers, json=payload)
+
+        if r.status_code != 200:
+            log.error(f"OPENROUTER STATUS {r.status_code}: {r.text}")
+            return "⚠️ IA ocupada agora, tenta de novo"
+
+        data = r.json()
+
+        if "choices" in data and len(data["choices"]) > 0:
+            return data["choices"][0]["message"]["content"].strip()
+
+        return "⚠️ IA respondeu vazio"
+
+    except Exception as e:
+        log.error(f"ERRO IA: {e}")
+        return "⚠️ Falha temporária na IA"
+
 
 
 # ================= COMANDOS =================
