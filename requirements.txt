@@ -1,6 +1,18 @@
+# Telegram bot moderno (v20+)
 python-telegram-bot>=20.3
-openai==1.29.0
-aiohttp==3.9.4
+
+# Biblioteca para fazer requisições HTTP (OpenAI, APIs etc.)
+httpx>=0.24.0
+
+# OpenAI (IA humanizada)
+openai>=1.7.0
+
+# Async support para tarefas e loops
+aiohttp>=3.8.5
+
+# Dependências extras que podem ajudar com jobs e tarefas programadas
+python-dotenv>=1.0.0
+
 
 
 
