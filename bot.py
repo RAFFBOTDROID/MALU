@@ -43,22 +43,32 @@ RESPOSTAS_RAPIDAS = {
 def perguntar_ia(texto):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://render.com",
+        "X-Title": "MaluBot"
     }
 
     payload = {
-        "model": MODEL,
+        "model": "mistralai/mistral-7b-instruct:free",
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": texto}
         ],
         "temperature": 0.6,
-        "max_tokens": 80
+        "max_tokens": 120
     }
 
     try:
-        r = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-        r.raise_for_status()
+        r = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+
+        if r.status_code != 200:
+            logging.error(f"OPENROUTER STATUS {r.status_code}: {r.text}")
+            raise Exception("Falha OpenRouter")
 
         data = r.json()
         resposta = data["choices"][0]["message"]["content"].strip()
