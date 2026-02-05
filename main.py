@@ -1,10 +1,9 @@
 import os
 import asyncio
-from datetime import datetime
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-import openai
 import random
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import openai
 from aiohttp import web
 
 # ================= CONFIG =================
@@ -16,10 +15,9 @@ if not BOT_TOKEN or not OPENAI_API_KEY:
 
 openai.api_key = OPENAI_API_KEY
 
-# ================= MEMÓRIA =================
+# ================= MEMÓRIA DE USUÁRIO =================
 user_memory = {}  # {user_id: [{"role": "user"/"assistant", "content": "..."}]}
-
-MAX_MEMORY = 20  # quantidade máxima de mensagens por usuário
+MAX_MEMORY = 20  # Quantidade máxima de mensagens por usuário
 
 def remember_message(user_id, role, content):
     if user_id not in user_memory:
@@ -32,10 +30,13 @@ def remember_message(user_id, role, content):
 async def ask_gpt(user_id, message):
     remember_message(user_id, "user", message)
     try:
+        # Força português e jeito humano
+        prompt = user_memory[user_id] + [{"role": "system", "content": "Responda em português do Brasil, de forma natural, descontraída e sem parecer uma IA. Use gírias leves e emojis se fizer sentido."}]
         response = await asyncio.to_thread(
             lambda: openai.ChatCompletion.create(
                 model="gpt-4",
-                messages=user_memory[user_id]
+                messages=prompt,
+                temperature=0.8
             )
         )
         reply = response.choices[0].message.content.strip()
@@ -43,20 +44,20 @@ async def ask_gpt(user_id, message):
         return reply
     except Exception as e:
         print("Erro GPT:", e)
-        return "Desculpe, estou com dificuldades para responder agora 😔"
+        return "Ops... deu algum problema aqui 😅"
 
 # ================= HANDLERS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Oi! Sou a Malu 🤖 Humanizada. Vamos conversar? Me diga algo!"
+        "E aí! Sou a Malu 😎, bora trocar uma ideia? Pode me mandar qualquer coisa!"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_msg = update.message.text
 
-    # Delay humano
-    await asyncio.sleep(random.uniform(0.5, 1.5))
+    # Delay humano aleatório
+    await asyncio.sleep(random.uniform(0.8, 2.0))
     reply = await ask_gpt(user_id, user_msg)
     await update.message.reply_text(reply)
 
@@ -65,12 +66,11 @@ async def main_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-
     await app.run_polling(close_loop=False)
 
 # ================= HTTP SERVER =================
 async def handle_http(request):
-    return web.Response(text="Bot Malu GPT ativo! 🚀")
+    return web.Response(text="🤖 Malu GPT ativo! Conversa em português 🇧🇷")
 
 async def main_server():
     app_server = web.Application()
