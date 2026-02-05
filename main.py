@@ -6,62 +6,73 @@ from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
-    ContextTypes,
     filters,
+    ContextTypes
 )
+import openai
 
-# ================= CONFIGURAÇÃO =================
+# =======================
+# CONFIGURAÇÕES
+# =======================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-CHAT_ID = os.getenv("CHAT_ID")  # Grupo ou chat para mensagens automáticas
+CHAT_ID = os.getenv("CHAT_ID")  # Id do chat ou grupo para mensagens automáticas
 
 if not BOT_TOKEN or not OPENAI_API_KEY:
     raise RuntimeError("⚠️ BOT_TOKEN ou OPENAI_API_KEY não encontrado nos secrets!")
 
-# ================= FUNÇÕES =================
-async def get_ai_response(message: str) -> str:
-    respostas = [
-        "Oi! Como posso ajudar você hoje?",
-        "Interessante, me conte mais!",
-        "Estou pensando sobre isso...",
-        "Hmmm, não tinha pensado assim antes!"
-    ]
-    await asyncio.sleep(1)
-    return random.choice(respostas)
+openai.api_key = OPENAI_API_KEY
 
+# =======================
+# HANDLERS
+# =======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 Olá! Eu sou a Malu, seu bot com IA humanizada!")
+    await update.message.reply_text("🤖 Olá! Eu sou a Malu, sua IA humanizada!")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Use qualquer mensagem para conversar comigo!")
+    await update.message.reply_text("📌 Comandos:\n/start - iniciar bot\n/help - ajuda")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
-    response = await get_ai_response(user_message)
-    await update.message.reply_text(response)
+    user_msg = update.message.text
 
-# ================= MENSAGENS AUTOMÁTICAS =================
-async def auto_message(app: Application):
-    while True:
-        await asyncio.sleep(random.randint(300, 600))  # 5 a 10 minutos
-        if CHAT_ID:
-            await app.bot.send_message(CHAT_ID, "💬 Olá pessoal! Vamos conversar?")
+    # Aqui chamamos a OpenAI para gerar resposta
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": user_msg}]
+    )
+    reply = response.choices[0].message.content
+    await update.message.reply_text(reply)
 
-# ================= EXECUÇÃO DO BOT =================
-def main():
+# =======================
+# MENSAGENS AUTOMÁTICAS
+# =======================
+async def auto_message(context: ContextTypes.DEFAULT_TYPE):
+    if CHAT_ID:
+        await context.bot.send_message(
+            chat_id=CHAT_ID,
+            text="💬 Olá pessoal! Vamos conversar?"
+        )
+
+# =======================
+# MAIN
+# =======================
+async def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Handlers
+    # Adiciona handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Mensagens automáticas
-    asyncio.create_task(auto_message(app))
+    # Mensagens automáticas com JobQueue
+    app.job_queue.run_repeating(auto_message, interval=random.randint(300, 600), first=15)
 
-    # Rodar o bot (polling gerencia o loop internamente)
-    app.run_polling()
+    # Inicia o bot
+    print("🤖 Malu iniciado com IA humanizada!")
+    await app.run_polling()
 
-# ================= START =================
+# =======================
+# EXECUÇÃO
+# =======================
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
