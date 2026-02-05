@@ -3,74 +3,74 @@ import asyncio
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+import openai
 import random
+from aiohttp import web
 
 # ================= CONFIG =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise RuntimeError("⚠️ BOT_TOKEN não encontrado nos secrets!")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Memória simples por usuário
-user_memory = {}  # {user_id: [{"msg": "...", "time": datetime}, ...]}
+if not BOT_TOKEN or not OPENAI_API_KEY:
+    raise RuntimeError("⚠️ BOT_TOKEN ou OPENAI_API_KEY não encontrado nos secrets!")
 
-# ================= UTIL =================
-def remember(user_id, message):
-    """Salva mensagem na memória do usuário (máx 20 mensagens)"""
+openai.api_key = OPENAI_API_KEY
+
+# ================= MEMÓRIA =================
+user_memory = {}  # {user_id: [{"role": "user"/"assistant", "content": "..."}]}
+
+MAX_MEMORY = 20  # quantidade máxima de mensagens por usuário
+
+def remember_message(user_id, role, content):
     if user_id not in user_memory:
         user_memory[user_id] = []
-    user_memory[user_id].append({"msg": message, "time": datetime.now()})
-    if len(user_memory[user_id]) > 20:
+    user_memory[user_id].append({"role": role, "content": content})
+    if len(user_memory[user_id]) > MAX_MEMORY:
         user_memory[user_id].pop(0)
 
-def generate_reply(user_id, message):
-    """Gera resposta baseada na memória e mensagens anteriores"""
-    remember(user_id, message)
-    # Mensagens padrão de humanização
-    greetings = ["Oi! 😄", "E aí? 😎", "Olá! Como vai? 🤖"]
-    reactions = ["Interessante…", "Humm… entendi!", "Uau, sério? 😮"]
-    # Escolhe resposta baseada em palavras-chave simples
-    msg_lower = message.lower()
-    if "oi" in msg_lower or "olá" in msg_lower:
-        return random.choice(greetings)
-    if "como você" in msg_lower or "tudo bem" in msg_lower:
-        return random.choice(["Estou ótimo, obrigado! 😁 E você?", "Tudo bem por aqui! 😉"])
-    if "?" in msg_lower:
-        return random.choice(reactions)
-    # Resposta aleatória da memória
-    if user_id in user_memory and random.random() < 0.3:
-        mem = random.choice(user_memory[user_id])
-        return f"Você comentou antes: '{mem['msg']}' 🤔"
-    # Resposta genérica
-    generic = ["Interessante… me conte mais!", "Humm… continue…", "Isso é legal!"]
-    return random.choice(generic)
+# ================= FUNÇÃO GPT =================
+async def ask_gpt(user_id, message):
+    remember_message(user_id, "user", message)
+    try:
+        response = await asyncio.to_thread(
+            lambda: openai.ChatCompletion.create(
+                model="gpt-4",
+                messages=user_memory[user_id]
+            )
+        )
+        reply = response.choices[0].message.content.strip()
+        remember_message(user_id, "assistant", reply)
+        return reply
+    except Exception as e:
+        print("Erro GPT:", e)
+        return "Desculpe, estou com dificuldades para responder agora 😔"
 
 # ================= HANDLERS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Oi! Sou a Malu 🤖 Humanizada. Me mande algo!")
+    await update.message.reply_text(
+        "Oi! Sou a Malu 🤖 Humanizada. Vamos conversar? Me diga algo!"
+    )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_msg = update.message.text
-    # Simula delay humano
+
+    # Delay humano
     await asyncio.sleep(random.uniform(0.5, 1.5))
-    reply = generate_reply(user_id, user_msg)
+    reply = await ask_gpt(user_id, user_msg)
     await update.message.reply_text(reply)
 
 # ================= MAIN BOT =================
 async def main_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
-    # Rodar polling do Telegram
     await app.run_polling(close_loop=False)
 
-# ================= HTTP SERVER (Render) =================
-from aiohttp import web
-
+# ================= HTTP SERVER =================
 async def handle_http(request):
-    return web.Response(text="Bot Malu ativo! 🚀")
+    return web.Response(text="Bot Malu GPT ativo! 🚀")
 
 async def main_server():
     app_server = web.Application()
@@ -87,5 +87,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main_server())
     except RuntimeError:
-        # Ignora event loop já rodando
         print("⚠️ RuntimeError ignorada: event loop já estava rodando")
