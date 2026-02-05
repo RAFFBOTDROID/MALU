@@ -1,53 +1,55 @@
 import os
-import openai
+import asyncio
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+import openai
 
-# ----------------------------
-# CONFIGURAÇÃO
-# ----------------------------
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")  # Token do bot
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Chave GPT-4
+# ================= CONFIG =================
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
+    raise RuntimeError("❌ Configure TELEGRAM_TOKEN e OPENAI_API_KEY nas variáveis de ambiente.")
 
 openai.api_key = OPENAI_API_KEY
 
-# ----------------------------
-# FUNÇÃO DE RESPOSTA
-# ----------------------------
-async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
+# ================= FUNÇÃO DA IA =================
+async def gerar_resposta(prompt: str) -> str:
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Você é uma assistente que fala português do Brasil de forma natural, sem parecer IA."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.8,
+            max_tokens=500
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print("Erro na OpenAI:", e)
+        return "Desculpe, aconteceu um erro. Tente novamente."
 
-    # Chamada GPT-4
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "Você é uma assistente brasileira super natural, responde sempre em português do Brasil e de forma humana."},
-            {"role": "user", "content": user_message}
-        ],
-        max_tokens=500
-    )
-
-    answer = response['choices'][0]['message']['content']
-
-    await update.message.reply_text(answer)
-
-# ----------------------------
-# COMANDOS INICIAIS
-# ----------------------------
+# ================= HANDLERS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 Oi! Eu sou a Malu, seu bot em português natural. Pode me perguntar qualquer coisa!")
+    await update.message.reply_text("Olá! Eu sou a Malu 🤖, sua assistente em português natural. Pergunte qualquer coisa!")
 
-# ----------------------------
-# MAIN
-# ----------------------------
-if __name__ == "__main__":
+async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text
+    await update.message.chat.send_action(action="typing")
+    resposta = await gerar_resposta(texto)
+    await update.message.reply_text(resposta)
+
+# ================= MAIN =================
+async def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Comandos
     app.add_handler(CommandHandler("start", start))
-
-    # Mensagens de texto
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
-    print("🤖 Malu iniciada com GPT-4 em português natural!")
-    app.run_polling()
+    print("🤖 Malu iniciada com português natural!")
+    await app.run_polling()
+
+# ================= RUN =================
+if __name__ == "__main__":
+    asyncio.run(main())
