@@ -40,13 +40,18 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(reply)
 
 # =====================
-# FUNÇÃO PRINCIPAL
+# FUNÇÃO DO BOT
 # =====================
-async def main_bot():
+async def run_bot():
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
-    await app_bot.run_polling(close_loop=False)
+    # rodando polling sem fechar o loop
+    await app_bot.initialize()
+    await app_bot.start()
+    await app_bot.updater.start_polling()
+    print("🤖 Bot rodando...")
+    return app_bot  # retorna para poder parar depois, se quiser
 
 # =====================
 # SERVIDOR HTTP PARA RENDER
@@ -54,7 +59,7 @@ async def main_bot():
 async def handle(request):
     return web.Response(text="🤖 Bot IA rodando!")
 
-async def main_server():
+async def run_server():
     server_app = web.Application()
     server_app.add_routes([web.get("/", handle)])
     runner = web.AppRunner(server_app)
@@ -62,10 +67,19 @@ async def main_server():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
     print(f"HTTP server rodando na porta {PORT}")
-    await main_bot()  # roda o bot junto
 
 # =====================
-# EXECUÇÃO
+# EXECUÇÃO PRINCIPAL
+# =====================
+async def main():
+    # roda bot e server juntos
+    bot_task = asyncio.create_task(run_bot())
+    await run_server()
+    await bot_task  # mantém o bot rodando
+
+# =====================
+# START
 # =====================
 if __name__ == "__main__":
-    asyncio.run(main_server())
+    # apenas um loop principal
+    asyncio.run(main())
