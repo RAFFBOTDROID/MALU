@@ -1,85 +1,80 @@
 import os
+import random
 import asyncio
-from aiohttp import web
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import openai
 
-# =====================
-# CONFIGURAÇÃO
-# =====================
+# ================= CONFIGURAÇÃO =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PORT = int(os.getenv("PORT", 10000))
+
+if not BOT_TOKEN or not OPENAI_API_KEY:
+    raise RuntimeError("⚠️ BOT_TOKEN ou OPENAI_API_KEY não encontrado nos secrets!")
+
 openai.api_key = OPENAI_API_KEY
 
-# =====================
-# FUNÇÃO DE IA
-# =====================
+# ================= FUNÇÃO DE IA =================
 async def ask_ai(prompt: str) -> str:
     try:
         response = await asyncio.to_thread(lambda: openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
+            temperature=0.8,
+            max_tokens=150
         ))
-        return response.choices[0].message.content.strip()
+        text = response.choices[0].message.content.strip()
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        return "\n".join(lines[:3])
     except Exception as e:
         return f"❌ Erro na IA: {e}"
 
-# =====================
-# HANDLERS DO BOT
-# =====================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 Olá! Malu IA iniciada!")
-
+# ================= FUNÇÃO DE RESPOSTA =================
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message.text
+
+    # Simula digitação humana
+    typing_time = min(max(len(msg) * 0.05 + random.uniform(0.5, 1.5), 1), 5)
     await update.message.chat.send_action("typing")
+    await asyncio.sleep(typing_time)
+
     reply = await ask_ai(msg)
-    await update.message.reply_text(reply)
+    prefix = random.choice(["🤔", "😄", "🧐", "Hmm,", "Ah,", ""])
+    await update.message.reply_text(f"{prefix} {reply}")
 
-# =====================
-# FUNÇÃO DO BOT
-# =====================
-async def run_bot():
-    app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
-    app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
-    # rodando polling sem fechar o loop
-    await app_bot.initialize()
-    await app_bot.start()
-    await app_bot.updater.start_polling()
-    print("🤖 Bot rodando...")
-    return app_bot  # retorna para poder parar depois, se quiser
+# ================= MENSAGENS AUTOMÁTICAS =================
+async def auto_message(app: Application):
+    await asyncio.sleep(10)  # espera 10s antes da primeira mensagem
+    while True:
+        await asyncio.sleep(3600)  # a cada 1 hora
+        chat_id = "SEU_CHAT_ID"  # coloque o ID do grupo
+        await app.bot.send_message(chat_id=chat_id, text=random.choice([
+            "Oi pessoal! 😄 Como estão hoje?",
+            "Hora de conversar! 🧐",
+            "Alguém tem uma pergunta interessante? 🤔"
+        ]))
 
-# =====================
-# SERVIDOR HTTP PARA RENDER
-# =====================
-async def handle(request):
-    return web.Response(text="🤖 Bot IA rodando!")
+# ================= COMANDOS =================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Olá! Eu sou a Malu 🤖💬, pronta para conversar!")
 
-async def run_server():
-    server_app = web.Application()
-    server_app.add_routes([web.get("/", handle)])
-    runner = web.AppRunner(server_app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
-    print(f"HTTP server rodando na porta {PORT}")
-
-# =====================
-# EXECUÇÃO PRINCIPAL
-# =====================
+# ================= FUNÇÃO PRINCIPAL =================
 async def main():
-    # roda bot e server juntos
-    bot_task = asyncio.create_task(run_bot())
-    await run_server()
-    await bot_task  # mantém o bot rodando
+    app = Application.builder().token(BOT_TOKEN).build()
 
-# =====================
-# START
-# =====================
+    # Handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+
+    # Start auto messages em paralelo
+    asyncio.create_task(auto_message(app))
+
+    # Rodar bot
+    await app.run_polling()
+
+# ================= INICIAR BOT =================
 if __name__ == "__main__":
-    # apenas um loop principal
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except RuntimeError:
+        print("⚠️ RuntimeError ignorada: event loop já estava rodando")
