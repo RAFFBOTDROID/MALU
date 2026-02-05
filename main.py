@@ -1,90 +1,76 @@
 import os
 import asyncio
-import random
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-import openai
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from aiohttp import web
 
-# ================= CONFIG =================
+# ================== CONFIGURAÇÕES ==================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # caso queira integrar GPT futuramente
 
-if not BOT_TOKEN or not OPENAI_API_KEY:
-    raise RuntimeError("⚠️ BOT_TOKEN ou OPENAI_API_KEY não encontrado nos secrets!")
+if not BOT_TOKEN:
+    raise RuntimeError("⚠️ BOT_TOKEN não encontrado nos secrets!")
 
-openai.api_key = OPENAI_API_KEY
-
-# ================= MEMÓRIA DE USUÁRIO =================
-user_memory = {}  # {user_id: [{"role": "user"/"assistant", "content": "..."}]}
-MAX_MEMORY = 20  # Quantidade máxima de mensagens por usuário
-
-def remember_message(user_id, role, content):
-    if user_id not in user_memory:
-        user_memory[user_id] = []
-    user_memory[user_id].append({"role": role, "content": content})
-    if len(user_memory[user_id]) > MAX_MEMORY:
-        user_memory[user_id].pop(0)
-
-# ================= FUNÇÃO GPT =================
-async def ask_gpt(user_id, message):
-    remember_message(user_id, "user", message)
-    try:
-        # Força português e jeito humano
-        prompt = user_memory[user_id] + [{"role": "system", "content": "Responda em português do Brasil, de forma natural, descontraída e sem parecer uma IA. Use gírias leves e emojis se fizer sentido."}]
-        response = await asyncio.to_thread(
-            lambda: openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=prompt,
-                temperature=0.8
-            )
-        )
-        reply = response.choices[0].message.content.strip()
-        remember_message(user_id, "assistant", reply)
-        return reply
-    except Exception as e:
-        print("Erro GPT:", e)
-        return "Ops... deu algum problema aqui 😅"
-
-# ================= HANDLERS =================
+# ================== FUNÇÕES DO BOT ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "E aí! Sou a Malu 😎, bora trocar uma ideia? Pode me mandar qualquer coisa!"
+        "Oi! Eu sou a Malu 🤖\n"
+        "Falo português natural, como uma pessoa real.\n"
+        "Manda uma mensagem pra eu responder!"
     )
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_msg = update.message.text
+async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text
 
-    # Delay humano aleatório
-    await asyncio.sleep(random.uniform(0.8, 2.0))
-    reply = await ask_gpt(user_id, user_msg)
-    await update.message.reply_text(reply)
+    # Resposta "humana" simples (pode ser expandida com GPT depois)
+    resposta = gerar_resposta(texto)
+    await update.message.reply_text(resposta)
 
-# ================= MAIN BOT =================
-async def main_bot():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    await app.run_polling(close_loop=False)
+def gerar_resposta(texto: str) -> str:
+    # Aqui você pode colocar regras mais avançadas ou integração GPT
+    texto = texto.lower()
+    if "oi" in texto or "olá" in texto:
+        return "Oi! Que bom te ver por aqui 😊"
+    elif "tudo bem" in texto:
+        return "Tudo ótimo, e você?"
+    elif "nome" in texto:
+        return "Eu me chamo Malu 🤖, prazer!"
+    else:
+        return "Entendi 😄 Pode me contar mais?"
 
-# ================= HTTP SERVER =================
+# ================== HTTP SERVER ==================
 async def handle_http(request):
-    return web.Response(text="🤖 Malu GPT ativo! Conversa em português 🇧🇷")
+    return web.Response(text="Bot rodando! ✅")
+
+# ================== FUNÇÃO PRINCIPAL ==================
+async def main_bot():
+    app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Handlers
+    app_bot.add_handler(CommandHandler("start", start))
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
+
+    print("🤖 Malu iniciado com português natural!")
+    await app_bot.run_polling(close_loop=False)
 
 async def main_server():
+    port = int(os.getenv("PORT", 10000))
     app_server = web.Application()
     app_server.add_routes([web.get("/", handle_http)])
+
     runner = web.AppRunner(app_server)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 10000)))
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"HTTP server rodando na porta {os.getenv('PORT', 10000)}")
-    await main_bot()  # roda o bot junto
+    print(f"HTTP server rodando na porta {port}")
 
-# ================= EXECUTE =================
+    # Start Telegram bot junto
+    await main_bot()
+
+# ================== START ==================
 if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
     try:
-        asyncio.run(main_server())
-    except RuntimeError:
-        print("⚠️ RuntimeError ignorada: event loop já estava rodando")
+        loop.run_until_complete(main_server())
+    except KeyboardInterrupt:
+        print("Finalizando bot e servidor...")
